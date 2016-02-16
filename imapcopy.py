@@ -15,6 +15,17 @@ import imaplib
 import logging
 import argparse
 
+from time import struct_time
+import datetime
+from dateutil import parser
+
+# http://stackoverflow.com/questions/28093565/issue-about-python-imaplib-library-on-method-append
+def convertDate(date):
+
+    date = parser.parse(date)
+    date = date.timetuple()
+    return date
+
 
 class IMAP_Copy(object):
     source = {
@@ -129,8 +140,8 @@ class IMAP_Copy(object):
         # Look for mails
         self.logger.info("Looking for mails in %s" % source_mailbox)
         status, data = self._conn_source.search(None, 'ALL')
-        data = data[0].split()
-        mail_count = len(data)
+        messages = data[0].split()
+        mail_count = len(messages)
 
         self.logger.info("Start copy %s => %s (%d mails)" % (
             source_mailbox, destination_mailbox, mail_count))
@@ -138,19 +149,22 @@ class IMAP_Copy(object):
         progress_count = 0
         copy_count = 0
 
-        for msg_num in data:
+        for msg_num in messages:
             progress_count += 1
             if progress_count <= skip:
                 self.logger.info("Skipping mail %d of %d" % (
                     progress_count, mail_count))
                 continue
             else:
+                status, data = self._conn_source.fetch(msg_num, '(INTERNALDATE)')
+                internaldate = convertDate(data[0].split("\"")[1])
+
                 status, data = self._conn_source.fetch(msg_num, '(RFC822 FLAGS)')
                 message = data[0][1]
                 flags = data[1][8:][:-2]  # Not perfect.. Waiting for bug reports
 
                 self._conn_destination.append(
-                    destination_mailbox, flags, None, message
+                    destination_mailbox, flags, internaldate, message
                 )
 
                 copy_count += 1
@@ -173,7 +187,10 @@ class IMAP_Copy(object):
             for source_mailbox, destination_mailbox in self.mailbox_mapping:
                 self.copy(source_mailbox, destination_mailbox, self.skip, self.limit)
         finally:
-            self.disconnect()
+            try:
+                self.disconnect()
+            except:
+                self.logger.error("error disconnecting...")
 
 
 def main():
