@@ -14,9 +14,8 @@ import hashlib
 import imaplib
 import logging
 import argparse
+import re
 
-from time import struct_time
-import datetime
 from dateutil import parser
 
 # http://stackoverflow.com/questions/28093565/issue-about-python-imaplib-library-on-method-append
@@ -156,12 +155,17 @@ class IMAP_Copy(object):
                     progress_count, mail_count))
                 continue
             else:
-                status, data = self._conn_source.fetch(msg_num, '(INTERNALDATE)')
-                internaldate = convertDate(data[0].split("\"")[1])
 
-                status, data = self._conn_source.fetch(msg_num, '(RFC822 FLAGS)')
+                status, data = self._conn_source.fetch(
+                    msg_num, '(RFC822 FLAGS INTERNALDATE)')
+
+                flags = re.match(r'.*FLAGS \((.*?)\)', data[0][0])
+                flags = flags.group(1)
+
+                internaldate = re.match(r'.*INTERNALDATE "(.*?)"', data[0][0])
+                internaldate = convertDate(internaldate.group(1))
+
                 message = data[0][1]
-                flags = data[1][8:][:-2]  # Not perfect.. Waiting for bug reports
 
                 self._conn_destination.append(
                     destination_mailbox, flags, internaldate, message
@@ -170,12 +174,14 @@ class IMAP_Copy(object):
                 copy_count += 1
                 message_md5 = hashlib.md5(message).hexdigest()
 
-                self.logger.info("Copy mail %d of %d (copy_count=%d, md5(message)=%s)" % (
-                    progress_count, mail_count, copy_count, message_md5))
+                self.logger.info(
+                    "Copy mail %d of %d (copy_count=%d, md5(message)=%s)" % (
+                        progress_count, mail_count, copy_count, message_md5))
 
                 if limit > 0 and copy_count >= limit:
-                    self.logger.info("Copy limit %d reached (copy_count=%d)" % (
-                        limit, copy_count))
+                    self.logger.info(
+                        "Copy limit %d reached (copy_count=%d)" % (
+                            limit, copy_count))
                     break
 
         self.logger.info("Copy complete %s => %s (%d out of %d mails copied)" % (
